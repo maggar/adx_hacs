@@ -1,4 +1,4 @@
-# Home Assistant IHC Beta testing
+# Home Azure Data Explorer Beta testing
 
 This is a Home Assistant Custom integration for beta testing the Azure Data Explorer integration.
 I will used this when making some bigger changes to the Azure Data Exploerer integration in Home Assisant for beta testing before the code is commited to the main Home Assistant.
