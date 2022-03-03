@@ -6,6 +6,7 @@
   "requirements": ["azure-kusto-ingest==3.0.1","azure-kusto-data[aio]==3.0.1"],
   "ssdp": [],
   "zeroconf": [],
+  "version": "1.0.0"
   "homekit": {},
   "dependencies": [],
   "codeowners": [
