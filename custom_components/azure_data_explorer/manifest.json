@@ -3,7 +3,7 @@
   "name": "Azure Data Explorer",
   "config_flow": true,
   "documentation": "https://www.home-assistant.io/integrations/azure_data_explorer",
-  "requirements": ["azure-kusto-data==3.1.0","azure-kusto-ingest==3.1.0"],
+  "requirements": ["azure-kusto-data[aio]==3.1.0","azure-kusto-ingest==3.1.0"],
   "ssdp": [],
   "zeroconf": [],
   "version": "1.0.1",
