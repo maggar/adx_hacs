@@ -1,12 +1,11 @@
 """Config flow for Azure Data Explorer integration."""
-# pylint: disable=no-member
 from __future__ import annotations
 
 from copy import deepcopy
 import logging
 from typing import Any
 
-from azure.kusto.data.exceptions import KustoAuthenticationError
+from azure.kusto.data.exceptions import KustoAuthenticationError, KustoServiceError
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -42,30 +41,6 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-async def validate_input(
-    hass: HomeAssistant, data: dict[str, Any]
-) -> dict[str, Any] | None:
-    """Validate the user input allows us to connect.
-
-    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
-    """
-
-    client = AzureDataExplorerClient(**data)
-
-    try:
-        await hass.async_add_executor_job(client.test_connection)
-
-    except KustoAuthenticationError as exp:
-        _LOGGER.error(exp)
-        return {"base": "invalid_auth"}
-
-    except Exception as exp:  # pylint: disable=broad-except
-        _LOGGER.error(exp)
-        return {"base": "unknown"}
-
-    return None
-
-
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Azure Data Explorer."""
 
@@ -73,8 +48,42 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self):
         """Initialize the config flow."""
-        self._data: dict[str, Any] = {}
         self._options: dict[str, Any] = deepcopy(DEFAULT_OPTIONS)
+        self._data = None
+
+    async def validate_input(
+        self, hass: HomeAssistant, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Validate the user input allows us to connect.
+
+        Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
+        """
+        client = AzureDataExplorerClient(
+            clusteringesturi=data["clusteringesturi"],
+            database=data["database"],
+            table=data["table"],
+            client_id=data["client_id"],
+            client_secret=data["client_secret"],
+            authority_id=data["authority_id"],
+            use_free_cluster=data["use_free_cluster"],
+        )
+
+        try:
+            await hass.async_add_executor_job(client.test_connection)
+
+        except KustoAuthenticationError as exp:
+            _LOGGER.error(exp)
+            return {"base": "invalid_auth"}
+
+        except KustoServiceError as exp:
+            _LOGGER.error(exp)
+            return {"base": "cannot_connect"}
+
+        except Exception as exp:  # pylint: disable=broad-except
+            _LOGGER.error(exp)
+            return {"base": "unknown"}
+
+        return None
 
     @staticmethod
     def async_get_options_flow(config_entry):
@@ -89,18 +98,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="single_instance_allowed")
         if user_input is None:
             return self.async_show_form(
-                step_id="user", data_schema=STEP_USER_DATA_SCHEMA
+                step_id="user", data_schema=STEP_USER_DATA_SCHEMA, last_step=True
             )
 
         self._data = user_input
-        errors = await validate_input(self.hass, user_input)
+        errors = await self.validate_input(self.hass, user_input)
 
-        if user_input is None or errors is not None:
+        if errors is not None:
             return self.async_show_form(
                 step_id="user",
                 data_schema=STEP_USER_DATA_SCHEMA,
                 errors=errors,
-                description_placeholders=self._data[CONF_ADX_CLUSTER_INGEST_URI],
                 last_step=True,
             )
 
@@ -114,9 +122,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def create_title(self):
         """Build the Cluster Title from the URL."""
         url_no_https = str(self._data[CONF_ADX_CLUSTER_INGEST_URI]).split("//")[1]
-        cluster_name = str(url_no_https.split(".")[0])
-
-        return cluster_name
+        return str(url_no_https.split(".")[0])
 
 
 class ADXOptionsFlowHandler(config_entries.OptionsFlow):

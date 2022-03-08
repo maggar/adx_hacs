@@ -1,5 +1,4 @@
 """The Azure Data Explorer integration."""
-# pylint: disable=no-member
 from __future__ import annotations
 
 import asyncio
@@ -9,12 +8,13 @@ import json
 import logging
 from typing import Any
 
+from azure.kusto.data.exceptions import KustoAuthenticationError, KustoServiceError
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import MATCH_ALL
 from homeassistant.core import Event, HomeAssistant, State
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryNotReady, IntegrationError
 from homeassistant.helpers.entityfilter import FILTER_SCHEMA
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.json import JSONEncoder
@@ -59,7 +59,7 @@ async def async_setup(hass: HomeAssistant, yaml_config: ConfigType) -> bool:
     hass.data.setdefault(DOMAIN, {DATA_FILTER: FILTER_SCHEMA({})})
     if DOMAIN not in yaml_config:
         return True
-    hass.data[DOMAIN][DATA_FILTER] = yaml_config[DOMAIN].pop(CONF_FILTER)
+    hass.data[DOMAIN][DATA_FILTER] = yaml_config[DOMAIN][CONF_FILTER]
 
     return True
 
@@ -67,17 +67,22 @@ async def async_setup(hass: HomeAssistant, yaml_config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Do the setup based on the config entry and the filter from yaml."""
     hass.data.setdefault(DOMAIN, {DATA_FILTER: FILTER_SCHEMA({})})
-
-    adx = AzureDataExplorer(
-        hass,
-        entry,
-        hass.data[DOMAIN][DATA_FILTER],
-    )
+    adx = AzureDataExplorer(hass, entry)
     try:
         await adx.test_connection()
+    except KustoServiceError as exp:
+        _LOGGER.error(exp)
+        raise IntegrationError(
+            "Could not find Azure Data Explorer database or table"
+        ) from exp
+    except KustoAuthenticationError as exp:
+        _LOGGER.error(exp)
+        raise ConfigEntryNotReady(
+            "Could not authenticate to Azure Data Explorer"
+        ) from exp
     except Exception as exp:  # pylint: disable=broad-except
         _LOGGER.error(exp)
-        raise ConfigEntryNotReady("Could not connect to Azure Data Exlorer") from exp
+        raise ConfigEntryNotReady("Could not connect to Azure Data Explorer") from exp
     hass.data[DOMAIN][DATA_HUB] = adx
     entry.async_on_unload(entry.add_update_listener(async_update_listener))
     await adx.async_start()
@@ -103,20 +108,28 @@ class AzureDataExplorer:
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        entities_filter: vol.Schema,
     ) -> None:
         """Initialize the listener."""
 
         self.hass = hass
         self._entry = entry
-        self._entities_filter = entities_filter
+        self._entities_filter = hass.data[DOMAIN][DATA_FILTER]
 
-        self._client = AzureDataExplorerClient(**self._entry.data)
+        self._client = AzureDataExplorerClient(
+            clusteringesturi=self._entry.data["clusteringesturi"],
+            database=self._entry.data["database"],
+            table=self._entry.data["table"],
+            client_id=self._entry.data["client_id"],
+            client_secret=self._entry.data["client_secret"],
+            authority_id=self._entry.data["authority_id"],
+            use_free_cluster=self._entry.data["use_free_cluster"],
+        )
+
         self._send_interval = self._entry.options[CONF_SEND_INTERVAL]
         self._max_delay = self._entry.options.get(CONF_MAX_DELAY, DEFAULT_MAX_DELAY)
 
         self._shutdown = False
-        self._queue: asyncio.PriorityQueue[  # pylint: disable=unsubscriptable-object
+        self._queue: asyncio.PriorityQueue[
             tuple[int, tuple[datetime, State | None]]
         ] = asyncio.PriorityQueue()
         self._listener_remover: Callable[[], None] | None = None
@@ -140,9 +153,7 @@ class AzureDataExplorer:
             self._next_send_remover()
         if self._listener_remover:
             self._listener_remover()
-        await self._queue.put(
-            (3, (utcnow(), None))
-        )  # <---WHY IS THIS NEEDED!!! Creates error when sending none
+        await self._queue.put((3, (utcnow(), None)))
         await self.async_send(None)
         await self._queue.join()
 
@@ -154,7 +165,7 @@ class AzureDataExplorer:
         """Test the connection to the Azure Data Explorer service."""
         await self.hass.async_add_executor_job(self._client.test_connection)
 
-        return None
+        return
 
     def _schedule_next_send(self) -> None:
         """Schedule the next send."""
@@ -164,30 +175,42 @@ class AzureDataExplorer:
             )
 
     async def async_listen(self, event: Event) -> None:
-        """Listen for new messages on the bus and queue them for AEH."""
+        """Listen for new messages on the bus and queue them for ADX."""
         if state := event.data.get("new_state"):
             await self._queue.put((2, (event.time_fired, state)))
 
     async def async_send(self, _) -> None:
         """Write preprocessed events to Azure Data Explorer."""
 
-        adx_events = ""
+        adx_events = []
+        dropped = 0
         while not self._queue.empty():
             _, event = self._queue.get_nowait()
-            dropped = 0
             adx_event, dropped = self._parse_event(*event, dropped)
-            if dropped == 0:
-                adx_events += str(adx_event)
+            self._queue.task_done()
+            if adx_event is not None:
+                adx_events.append(adx_event)
 
-        if adx_events != "":
+        if dropped:
+            _LOGGER.warning(
+                "Dropped %d old events, consider filtering messages", dropped
+            )
+
+        if len(adx_events) > 0:
+
+            event_string = "".join(adx_events)
 
             try:
                 await self.hass.async_add_executor_job(
-                    lambda: self._client.ingest_data(adx_events)
+                    self._client.ingest_data, event_string
                 )
-            except Exception as err:  # pylint: disable=broad-except
-                _LOGGER.error(err)
 
+            except KustoServiceError as err:
+                _LOGGER.error("Could not find database or table: %s", err)
+            except KustoAuthenticationError as err:
+                _LOGGER.error("Could not authenticate to Azure Data Explorer: %s", err)
+            except Exception as err:  # pylint: disable=broad-except
+                _LOGGER.error("Unknown error: %s", err)
         self._schedule_next_send()
 
     def _parse_event(
@@ -197,20 +220,16 @@ class AzureDataExplorer:
         dropped: int,
     ) -> tuple[str | None, int]:
         """Parse event by checking if it needs to be sent, and format it."""
-        self._queue.task_done()
+
         if not state:
             self._shutdown = True
-            return None, dropped + 1
+            return None, dropped
         if state.state in FILTER_STATES or not self._entities_filter(state.entity_id):
-            return None, dropped + 1
+            return None, dropped
         if (utcnow() - time_fired).seconds > self._max_delay + self._send_interval:
             return None, dropped + 1
-        try:
-            json_string = bytes(json.dumps(obj=state, cls=JSONEncoder).encode("utf-8"))
-            json_dictionary = json.loads(json_string)
-            json_event = json.dumps(json_dictionary)
-        except Exception as exp:  # pylint: disable=broad-except
-            _LOGGER.error(exp)
-            return ("", 1)
+        json_string = bytes(json.dumps(obj=state, cls=JSONEncoder).encode("utf-8"))
+        json_dictionary = json.loads(json_string)
+        json_event = json.dumps(json_dictionary)
 
         return (json_event, dropped)
