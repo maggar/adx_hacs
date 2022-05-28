@@ -1,7 +1,7 @@
 # Home Azure Data Explorer Beta testing
 
 This is a Home Assistant Custom integration for beta testing the Azure Data Explorer integration.
-I will used this when making some bigger changes to the Azure Data Exploerer integration in Home Assisant for beta testing before the code is commited to the main Home Assistant.
+I will use this when making some bigger changes to the Azure Data Exploerer integration in Home Assisant for beta testing before the code is commited to the main Home Assistant.
 This makes it easier for you to do testing, and it also makes it easier and faster to do changes without having to wait for a PR in home assistant.
 
 ## Installing
@@ -11,7 +11,9 @@ Add a custom repository to hacs (using the github url of this repository).
 
 Once the custom repository is added, restart Home Assistant.
 
-Then, in the Settings/Integrations, click +Add Integration (lower right) and search for Azure Data Explorer.  (note you may need to press CTRL-F5 to refresh your browser before the integration shows up).3f8f9bd6-878d-4891-bf97-8e5b660c2858
+Then, in the Settings/Devices & Services/Integrations, click the '+Add Integration' button (lower right) and search for Azure Data Explorer.  (note you may need to press CTRL-F5 to refresh your browser before the integration shows up).
+
+You will be prompted with a configuration pane.  In order to fill out the values, you will need to follow the steps below to create an Azure Data Explorer Cluster, create a Service Principal (AppId) via the Azure portal, and create some tables and set the appropriate permissions and ingestion policies.
 
 Alternatively you can copy the custom_components/azure_data_explorer folder manually to your Home Assistant configuration folder.
 
@@ -25,11 +27,11 @@ The Home Assistant `Azure Data Explorer` integration allows you to hook into the
 
 ## Create a Service Principal (App registration)
 For Home Assistant to authenticate with Azure Data Explorer, it need a **Service Principal**
-1. Create a [Service Principal](https://docs.microsoft.com/en-us/azure/data-explorer/provision-azure-ad-app) follow guide step 1-7
+1. Create a [Service Principal](https://docs.microsoft.com/en-us/azure/data-explorer/provision-azure-ad-app) follow guide step 1-7.  Note that you do not need to create an Azure subscription to do this, you just need a Microsoft account (e.g. hotmail.com, live.com etc.).
 2. Copy values for later use:
     * Application (client) ID  <--From App registration owerwiev
     * Directory (tenant) ID    <--From App registration owerwiev
-    * Secret value             <--From when the secret was created in 1.7
+    * Secret value             <--From when the secret was created in 1.7 (note that this is the 'Value', not the 'Secret Id')
 
 ## Create Free Azure Dataexplorer cluster and Database
 There are two ways of creating an Azure Data Explorer Cluster: **Pay as you go (PAYG)** or **Free**
@@ -91,7 +93,7 @@ This is an example with a free cluster for reference
 
 After completiing the flow, Home Assistant is sending data to Azure Data Explorer. 
 
-> Home Assistant is buffering for defualt 5 seconds before sending, and Batching Policy in Azure Data Explorer will futher batch up for default 
+> Home Assistant is buffering for default 5 seconds before sending, and Batching Policy in Azure Data Explorer will futher batch up for default 
 
 ## Filters
 
