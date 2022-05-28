@@ -9,6 +9,10 @@ This makes it easier for you to do testing, and it also makes it easier and fast
 Intall using [hacs](https://hacs.xyz/).
 Add a custom repository to hacs (using the github url of this repository).
 
+Once the custom repository is added, restart Home Assistant.
+
+Then, in the Settings/Integrations, click +Add Integration (lower right) and search for Azure Data Explorer.  (note you may need to press CTRL-F5 to refresh your browser before the integration shows up).3f8f9bd6-878d-4891-bf97-8e5b660c2858
+
 Alternatively you can copy the custom_components/azure_data_explorer folder manually to your Home Assistant configuration folder.
 
 
@@ -65,7 +69,7 @@ After the creation of the database, copy the **Data ingestion URI** from the top
 .create table ['<name_to_be_replaced>'] (entity_id: string, state: string, attributes: dynamic, last_changed: datetime, last_updated: datetime, context: dynamic)
 
 // Creat a mapping from the incomming JSON to the table and collums just created (replace name with table name from previous step)
-.create table ['<name_to_be_replaced>'] ingestion json mapping ['ha_json_mapping'] '[{"column":"entity_id","path":"$.entity_id"},{"column":"state","path":"$.state"},{"column":"attributes","path":"$.attributes"},{"column":"last_changed","path":"$.last_canged"},{"column":"last_updated","path":"$.last_updated"},{"column":"context","path":"$.context"}]'
+.create table ['<name_to_be_replaced>'] ingestion json mapping 'ha_json_mapping' '[{"column":"entity_id","path":"$.entity_id"},{"column":"state","path":"$.state"},{"column":"attributes","path":"$.attributes"},{"column":"last_changed","path":"$.last_canged"},{"column":"last_updated","path":"$.last_updated"},{"column":"context","path":"$.context"}]'
 ```
 
 This is an example with a free cluster for reference
